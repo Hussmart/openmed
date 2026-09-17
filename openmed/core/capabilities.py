@@ -212,6 +212,27 @@ _BACKENDS: Final[dict[str, BackendSpec]] = {
         description="Model Context Protocol server integration",
         install="mcp",
     ),
+    "speech": BackendSpec(
+        name="speech",
+        extra="speech",
+        modules=("faster_whisper",),
+        description="Streaming speech-to-text transcription for ambient redaction",
+        install="faster-whisper",
+    ),
+    "mic": BackendSpec(
+        name="mic",
+        extra="mic",
+        modules=("sounddevice",),
+        description="Live microphone capture for ambient redaction",
+        install="sounddevice",
+    ),
+    "voice_privacy": BackendSpec(
+        name="voice_privacy",
+        extra="voice-privacy",
+        modules=("numpy",),
+        description="McAdams-coefficient voiceprint anonymization for recorded audio",
+        install="numpy",
+    ),
     "langchain": BackendSpec(
         name="langchain",
         extra="langchain",

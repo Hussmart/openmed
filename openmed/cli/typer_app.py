@@ -25,7 +25,14 @@ except ImportError:  # pragma: no cover - optional surface
     rprint = print
 
 from openmed import analyze_text, get_model_max_length, list_models
+from openmed.ambient import (
+    AmbientRedactionPipeline,
+    MicrophoneAudioSource,
+    WavFileAudioSource,
+    anonymize_wav_file,
+)
 from openmed.cli.main import _format_models_size_table, build_models_size_report
+from openmed.core.capabilities import backend_status
 from openmed.core.config import (
     OpenMedConfig,
     get_config,
@@ -38,6 +45,7 @@ from openmed.core.model_integrity import (
     ModelIntegrityError,
     verify_cached_models,
 )
+from openmed.graph import EntityGraph, GraphRAGRetriever, build_entity_graph
 from openmed.ner import (
     NerRequest,
     build_index,
@@ -94,6 +102,8 @@ def build_app():
     models_app = typer.Typer(help="Model discovery commands.")
     cli_app = typer.Typer(help="Config utilities.")
     zero_app = typer.Typer(help="Zero-shot (GLiNER/GLiNER2) utilities.")
+    ambient_app = typer.Typer(help="Real-time ambient speech redaction.")
+    graph_app = typer.Typer(help="Local entity co-occurrence graph and GraphRAG retrieval.")
 
     # ------------------------------------------------------------------
     # analyze
@@ -415,6 +425,155 @@ def build_app():
         _echo_json(response.to_dict())
 
     app.add_typer(zero_app, name="zero")
+
+    # ------------------------------------------------------------------
+    # ambient (real-time speech redaction)
+    # ------------------------------------------------------------------
+    @ambient_app.command("deps")
+    def ambient_deps():
+        for name in ("speech", "mic", "voice_privacy"):
+            status = backend_status(name)
+            state = "ok" if status.available else f"missing ({status.install_hint})"
+            rprint(f"{name}: {state}")
+
+    @ambient_app.command("anonymize-voice")
+    def ambient_anonymize_voice(
+        input_path: Path = typer.Argument(..., help="16-bit PCM .wav file to anonymize."),
+        output_path: Path = typer.Argument(..., help="Where to write the anonymized .wav."),
+        mcadams: float = typer.Option(
+            0.8,
+            "--mcadams",
+            help="McAdams coefficient in (0, 1.5]; further from 1.0 warps the voice more.",
+        ),
+    ):
+        """Warp a recorded file's voiceprint without changing what was said."""
+        anonymize_wav_file(input_path, output_path, mcadams_coefficient=mcadams)
+        rprint(f"[green]Anonymized voice written to {output_path}[/green]")
+
+    @ambient_app.command("file")
+    def ambient_file(
+        audio_path: Path = typer.Argument(..., help="16-bit PCM .wav file to replay."),
+        model_size: str = typer.Option(
+            "small.en", "--model", "-m", help="faster-whisper model size."
+        ),
+        deid_method: str = typer.Option(
+            "mask", "--deid-method", help="mask|replace|hash|remove|shift_dates."
+        ),
+        chunk_seconds: float = typer.Option(
+            3.0, "--chunk-seconds", help="Seconds of audio per transcription chunk."
+        ),
+        language: Optional[str] = typer.Option(
+            None, "--language", help="Force a transcription language (e.g. 'en')."
+        ),
+    ):
+        """Replay a recorded encounter and print de-identified transcript segments."""
+        source = WavFileAudioSource(audio_path, chunk_seconds=chunk_seconds)
+        pipeline = AmbientRedactionPipeline(
+            model_size=model_size,
+            deid_method=deid_method,  # type: ignore[arg-type]
+            language=language,
+        )
+        for redacted in pipeline.stream(source):
+            _echo_json(redacted.to_dict())
+
+    @ambient_app.command("mic")
+    def ambient_mic(
+        model_size: str = typer.Option(
+            "small.en", "--model", "-m", help="faster-whisper model size."
+        ),
+        deid_method: str = typer.Option(
+            "mask", "--deid-method", help="mask|replace|hash|remove|shift_dates."
+        ),
+        chunk_seconds: float = typer.Option(
+            3.0, "--chunk-seconds", help="Seconds of audio per transcription chunk."
+        ),
+        max_duration_seconds: Optional[float] = typer.Option(
+            None, "--max-duration", help="Stop capture after this many seconds."
+        ),
+        language: Optional[str] = typer.Option(
+            None, "--language", help="Force a transcription language (e.g. 'en')."
+        ),
+    ):
+        """Redact live microphone speech in real time, one chunk at a time."""
+        source = MicrophoneAudioSource(
+            chunk_seconds=chunk_seconds,
+            max_duration_seconds=max_duration_seconds,
+        )
+        pipeline = AmbientRedactionPipeline(
+            model_size=model_size,
+            deid_method=deid_method,  # type: ignore[arg-type]
+            language=language,
+        )
+        rprint("[green]Listening... press Ctrl+C to stop.[/green]")
+        for redacted in pipeline.stream(source):
+            _echo_json(redacted.to_dict())
+
+    app.add_typer(ambient_app, name="ambient")
+
+    # ------------------------------------------------------------------
+    # graph (local entity co-occurrence graph / GraphRAG)
+    # ------------------------------------------------------------------
+    @graph_app.command("build")
+    def graph_build(
+        input_files: List[Path] = typer.Argument(
+            ..., help="Text files to build the graph from (one document each)."
+        ),
+        output: Path = typer.Option(
+            ..., "--output", "-o", help="Where to write the graph as JSON."
+        ),
+        models: str = typer.Option(
+            "disease_detection_superclinical",
+            "--models",
+            help="Comma-separated OpenMed NER model names to run over every document.",
+        ),
+        window: str = typer.Option(
+            "sentence", "--window", help="Co-occurrence window: sentence|document."
+        ),
+        confidence_threshold: float = typer.Option(
+            0.5, "--threshold", help="Minimum entity confidence to include."
+        ),
+    ):
+        """Build a local entity co-occurrence graph from a set of text files."""
+        documents = {
+            path.stem: path.read_text(encoding="utf-8") for path in input_files
+        }
+        model_names = [name.strip() for name in models.split(",") if name.strip()]
+        graph = build_entity_graph(
+            documents,
+            model_names=model_names,
+            cooccurrence_window=window,  # type: ignore[arg-type]
+            confidence_threshold=confidence_threshold,
+        )
+        output.write_text(json.dumps(graph.to_dict(), indent=2), encoding="utf-8")
+        rprint(
+            f"[green]Graph written to {output}[/green] "
+            f"({len(graph.nodes)} nodes, {len(graph.edges)} edges)"
+        )
+
+    @graph_app.command("query")
+    def graph_query(
+        question: str = typer.Argument(..., help="Free-text question to ground."),
+        graph_path: Path = typer.Option(
+            ..., "--graph", "-g", help="Path to a graph.json from `openmed graph build`."
+        ),
+        models: str = typer.Option(
+            "disease_detection_superclinical",
+            "--models",
+            help="Comma-separated OpenMed NER model names to extract query entities.",
+        ),
+        top_k: int = typer.Option(
+            5, "--top-k", help="Max neighbors to return per matched entity."
+        ),
+    ):
+        """Return the graph neighborhood of every entity recognized in a question."""
+        data = json.loads(graph_path.read_text(encoding="utf-8"))
+        graph = EntityGraph.from_dict(data)
+        model_names = [name.strip() for name in models.split(",") if name.strip()]
+        retriever = GraphRAGRetriever(graph, model_names=model_names, top_k_per_entity=top_k)
+        context = retriever.retrieve(question)
+        _echo_json(context.to_dict())
+
+    app.add_typer(graph_app, name="graph")
 
     return app
 

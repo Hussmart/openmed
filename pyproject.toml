@@ -91,6 +91,18 @@ mcp = [
   "mcp>=1.27,<2",
 ]
 
+speech = [
+  "faster-whisper>=1.0",
+]
+
+mic = [
+  "sounddevice>=0.4",
+]
+
+voice-privacy = [
+  "numpy>=1.26",
+]
+
 lid = [
   "pycld2>=0.41,<1",
 ]

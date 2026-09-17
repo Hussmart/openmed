@@ -43,6 +43,7 @@ a dependency also declared in another extra.
 | `easyocr` | `multimodal` | `Apache-2.0` |
 | `extract-msg` | `email-msg-gpl` | `GPL-3.0-only` |
 | `faker` | `default` | `MIT` |
+| `faster-whisper` | `speech` | `MIT` |
 | `fastapi` | `service` | `MIT` |
 | `fsspec` | `cloud` | `BSD-3-Clause` |
 | `gcsfs` | `cloud` | `BSD-3-Clause` |
@@ -74,7 +75,7 @@ a dependency also declared in another extra.
 | `mlx-lm` | `mlx` | `MIT` |
 | `nbformat` | `notebook` | `BSD-3-Clause` |
 | `nncf` | `openvino` | `Apache-2.0` |
-| `numpy` | `duckdb, grounding, multimodal, onnx-runtime` | `BSD-3-Clause` |
+| `numpy` | `duckdb, grounding, multimodal, onnx-runtime, voice-privacy` | `BSD-3-Clause` |
 | `onnx` | `multimodal, onnx` | `Apache-2.0` |
 | `onnxruntime` | `onnx, onnx-runtime, openvino` | `MIT` |
 | `onnxscript` | `onnx` | `MIT` |
@@ -118,6 +119,7 @@ a dependency also declared in another extra.
 | `scispacy` | `scispacy` | `Apache-2.0` |
 | `scrubadub` | `scrubadub` | `Apache-2.0` |
 | `snowflake-snowpark-python` | `snowflake` | `Apache-2.0` |
+| `sounddevice` | `mic` | `MIT` |
 | `spacy` | `spacy` | `MIT` |
 | `sqlalchemy` | `sqlalchemy` | `MIT` |
 | `strawberry-graphql` | `service` | `MIT` |
