@@ -641,6 +641,75 @@ See the full [REST service guide](docs/rest-service.md).
 
 ---
 
+## Ambient speech redaction & voiceprint anonymization
+
+De-identify a clinical encounter as it's spoken: OpenMed streams microphone or `.wav` audio through local speech-to-text transcription and the same `deidentify()` engine used everywhere else in the SDK, redacting PHI segment by segment instead of waiting for the whole recording to finish. Because a raw recording's *voice* is itself a HIPAA Safe Harbor identifier — not just its transcript — a McAdams-coefficient voiceprint anonymizer (LPC pole warping) is included too: a small, deterministic signal-processing method with no model checkpoint to download.
+
+```bash
+pip install --upgrade "openmed[speech,mic,voice-privacy]"
+
+# De-identify a recorded encounter, chunk by chunk
+openmed ambient file visit.wav --model small.en
+
+# Live microphone redaction
+openmed ambient mic --model small.en
+
+# Anonymize a recording's voiceprint without changing what was said
+openmed ambient anonymize-voice visit.wav visit_anonymized.wav --mcadams 0.8
+```
+
+Example output:
+
+```text
+{"start": 0.0, "end": 2.4, "redacted_text": "Patient [NAME] reports a persistent cough.", "pii_entity_count": 1, "pii_categories": ["NAME"]}
+Anonymized voice written to visit_anonymized.wav
+```
+
+```python
+from openmed.ambient import AmbientRedactionPipeline, WavFileAudioSource
+
+pipeline = AmbientRedactionPipeline(model_size="small.en")
+for redacted in pipeline.stream(WavFileAudioSource("visit.wav")):
+    print(redacted.redacted_text)
+```
+
+- **Chunk-level redaction**: no PII heuristics are duplicated here — every redaction decision is delegated to the existing `deidentify()` engine as each segment is transcribed.
+- **Voiceprint anonymization**: LPC pole warping shifts formant structure (the main correlate of perceived speaker identity) while preserving pitch, timing, and intelligibility.
+
+---
+
+## Local Knowledge Graph & GraphRAG
+
+Turn OpenMed's NER output into a queryable entity-relationship graph, so an LLM's answer can be grounded in relationships OpenMed actually observed in your documents instead of inventing one.
+
+```bash
+openmed graph build note1.txt note2.txt --output graph.json \
+  --models disease_detection_superclinical --window sentence
+
+openmed graph query "Does the patient have any drug interactions?" --graph graph.json
+```
+
+Example output:
+
+```text
+Graph written to graph.json (12 nodes, 9 edges)
+{"query": "...", "matched_entities": ["metformin"], "triples": [{"source": "metformin", "relation": "co_occurs_with", "target": "diabetes", "weight": 3}], "context_text": "..."}
+```
+
+```python
+from openmed.graph import build_entity_graph, GraphRAGRetriever
+
+graph = build_entity_graph({"note-1": text}, model_names=["disease_detection_superclinical"])
+retriever = GraphRAGRetriever(graph)
+context = retriever.retrieve("Does the patient have any drug interactions?")
+print(context.context_text)
+```
+
+- **No new model, no graph database**: reuses the NER models already in the registry; the graph itself is a plain JSON file.
+- **Composes with existing RAG tooling**: pairs naturally with [`openmed.interop`](openmed/interop/)'s LangChain/LlamaIndex adapters and the SDK's redaction-preserving retrieval stack.
+
+---
+
 ## Documentation
 
 Full guides at **[openmed.life/docs](https://openmed.life/docs/)**.
