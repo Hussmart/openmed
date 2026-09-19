@@ -1,8 +1,6 @@
 <div align="center">
 
-<h1>openmed-ambient-graph</h1>
-
-<p><b>Ambient speech redaction, voiceprint anonymization, and local GraphRAG, built on <a href="https://github.com/maziyarpanahi/openmed">OpenMed</a>.</b></p>
+<img src="docs/brand/openmed-readme-banner.png" alt="OpenMed README banner with the cat mascot, lowercase wordmark, Open Cross, and the text Open-source healthcare AI, 340M+ downloads, and 10M+ installs" width="1280" />
 
 <h2>Your Data. Your Model. Your Hardware.</h2>
 
@@ -48,33 +46,6 @@ OpenMed's core local runtime performs extraction and de-identification after req
 </p>
 
 </div>
-
-> [!NOTE]
-> **An independent extension of [OpenMed](https://github.com/maziyarpanahi/openmed), maintained by [Hossein Hooshmand](https://github.com/Hussmart).** It is built on the OpenMed SDK (Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE)) and is not affiliated with or endorsed by the OpenMed maintainers. The SDK, models, and documentation below are theirs; what this repository adds is listed in [What this fork adds](#what-this-fork-adds) and is not part of the upstream PyPI package. Questions or bugs in the additions belong in [this repository's issues](https://github.com/Hussmart/openmed-ambient-graph/issues); for the upstream SDK, releases, and `pip install openmed`, use [maziyarpanahi/openmed](https://github.com/maziyarpanahi/openmed).
-
----
-
-## What this fork adds
-
-Everything not listed here is unchanged upstream code. The additions are two self-contained modules, three optional extras, and Typer CLI commands:
-
-| Addition | What it does | Code |
-| --- | --- | --- |
-| **Ambient speech redaction** | Streams microphone or `.wav` audio through local [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper) transcription, then through the existing `deidentify()` engine, one segment at a time | [`openmed/ambient/`](openmed/ambient/) |
-| **Voiceprint anonymization** | Warps a recording's formant structure (McAdams-coefficient LPC pole warping) so the audio itself, not only its transcript, is altered; pure NumPy, no model download | [`openmed/ambient/voice_privacy.py`](openmed/ambient/voice_privacy.py) |
-| **Local entity graph** | Builds a weighted co-occurrence graph from OpenMed NER output, per sentence or per document, serialized as plain JSON | [`openmed/graph/builder.py`](openmed/graph/builder.py) |
-| **GraphRAG retrieval** | Turns a question into prompt-ready context from the relationships actually observed in your corpus | [`openmed/graph/retrieval.py`](openmed/graph/retrieval.py) |
-| **Extras & CLI** | `speech`, `mic`, and `voice-privacy` extras; `ambient` and `graph` commands in the Typer CLI | [`pyproject.toml`](pyproject.toml), [`openmed/cli/typer_app.py`](openmed/cli/typer_app.py) |
-
-**What has been verified.** 49 unit tests cover the new modules ([`tests/unit/ambient/`](tests/unit/ambient/), [`tests/unit/graph/`](tests/unit/graph/)). Real models were also exercised locally: transcription with `faster-whisper` `small.en`, graph build and query with `OpenMed-NER-DiseaseDetect-ElectraMed-33M`, and voice anonymization on a synthetic waveform.
-
-**Known limits.**
-
-- The de-identification stage of `ambient file` / `ambient mic` calls upstream `deidentify()` with its default PII model. Unit tests mock that stage; it has not been run end to end with a real PII model here.
-- There is no consent, capture-state, audio-retention, or speaker-role handling. Do not point the ambient pipeline at real patient audio without your own controls.
-- McAdams warping is a lightweight research baseline that reduces speaker identifiability. It has not been evaluated against speaker-verification systems and gives no anonymity guarantee.
-- The graph records co-occurrence, not typed clinical relations such as "treats" or "causes"; edges are candidates to verify, not facts.
-- As with the rest of the SDK, none of this by itself establishes HIPAA compliance.
 
 ---
 
@@ -670,87 +641,6 @@ See the full [REST service guide](docs/rest-service.md).
 
 ---
 
-## Ambient speech redaction & voiceprint anonymization
-
-De-identify a clinical encounter as it's spoken: OpenMed streams microphone or `.wav` audio through local speech-to-text transcription and the same `deidentify()` engine used everywhere else in the SDK, redacting PHI segment by segment instead of waiting for the whole recording to finish. Because a raw recording's *voice* is itself a HIPAA Safe Harbor identifier — not just its transcript — a McAdams-coefficient voiceprint anonymizer (LPC pole warping) is included too: a small, deterministic signal-processing method with no model checkpoint to download.
-
-```bash
-# Install from this fork: the `speech`, `mic`, and `voice-privacy` extras are not in the upstream PyPI package
-git clone https://github.com/Hussmart/openmed-ambient-graph && cd openmed-ambient-graph
-pip install -e ".[hf,cli,speech,mic,voice-privacy]"
-
-# De-identify a recorded encounter, chunk by chunk (16 kHz, 16-bit PCM .wav)
-python -m openmed.cli.typer_app ambient file visit.wav --model small.en
-
-# Live microphone redaction
-python -m openmed.cli.typer_app ambient mic --model small.en
-
-# Anonymize a recording's voiceprint without changing what was said
-python -m openmed.cli.typer_app ambient anonymize-voice visit.wav visit_anonymized.wav --mcadams 0.8
-```
-
-Example output (illustrative; values depend on your audio and PII model):
-
-```text
-{"start": 0.0, "end": 2.4, "redacted_text": "Patient [NAME] reports a persistent cough.", "pii_entity_count": 1, "pii_categories": ["NAME"]}
-Anonymized voice written to visit_anonymized.wav
-```
-
-```python
-from openmed.ambient import AmbientRedactionPipeline, WavFileAudioSource
-
-pipeline = AmbientRedactionPipeline(model_size="small.en")
-for redacted in pipeline.stream(WavFileAudioSource("visit.wav")):
-    print(redacted.redacted_text)
-```
-
-- **Chunk-level redaction**: no PII heuristics are duplicated here — every redaction decision is delegated to the existing `deidentify()` engine as each segment is transcribed.
-- **Voiceprint anonymization**: LPC pole warping shifts formant structure (the main correlate of perceived speaker identity) while preserving pitch, timing, and intelligibility.
-
----
-
-## Local Knowledge Graph & GraphRAG
-
-Turn OpenMed's NER output into a queryable entity-relationship graph, so an LLM's answer can be grounded in relationships OpenMed actually observed in your documents instead of inventing one.
-
-```bash
-# Install from this fork as above (needs the `hf` and `cli` extras); this example uses a small 33M NER model
-python -m openmed.cli.typer_app graph build note1.txt note2.txt --output graph.json \
-  --models OpenMed/OpenMed-NER-DiseaseDetect-ElectraMed-33M --window document --threshold 0.3
-
-python -m openmed.cli.typer_app graph query "Does the patient with asthma have any other conditions?" \
-  --graph graph.json --models OpenMed/OpenMed-NER-DiseaseDetect-ElectraMed-33M
-```
-
-Example output (from two short synthetic notes):
-
-```text
-Graph written to graph.json (4 nodes, 2 edges)
-{
-  "query": "Does the patient with asthma have any other conditions?",
-  "matched_entities": ["asthma"],
-  "triples": [
-    {"source": "asthma", "relation": "co_occurs_with", "target": "diabetes", "weight": 1}
-  ],
-  "context_text": "Entities recognized in the query: asthma.\nRelationships observed in the local corpus (not verified medical facts -- co-occurrence only):\n- asthma co occurs with diabetes (seen 1x)"
-}
-```
-
-```python
-from openmed.graph import build_entity_graph, GraphRAGRetriever
-
-models = ["OpenMed/OpenMed-NER-DiseaseDetect-ElectraMed-33M"]
-graph = build_entity_graph({"note-1": text}, model_names=models, cooccurrence_window="document")
-retriever = GraphRAGRetriever(graph, model_names=models)
-print(retriever.retrieve("Does the patient with asthma have any other conditions?").context_text)
-```
-
-- **No new model, no graph database**: reuses the NER models already in the registry; the graph itself is a plain JSON file.
-- **Windows**: `sentence` links only entities that share a sentence (precise, sparse); `document` links every entity pair in a document. A single-type model like the one above only produces edges with `document`, or when combined with other models (e.g. a drug model) that add a second entity type.
-- **Composes with existing RAG tooling**: pairs naturally with [`openmed.interop`](openmed/interop/)'s LangChain/LlamaIndex adapters and the SDK's redaction-preserving retrieval stack.
-
----
-
 ## Documentation
 
 Full guides at **[openmed.life/docs](https://openmed.life/docs/)**.
@@ -804,10 +694,6 @@ issue. See **[SECURITY.md](SECURITY.md)** for the responsible-disclosure policy
 and the [private reporting form](https://github.com/maziyarpanahi/openmed/security/advisories/new).
 Never include real patient data in a report.
 
-That policy and form belong to the upstream project. For a vulnerability in the
-additions made in this repository (`openmed/ambient/`, `openmed/graph/`), use
-this repository's [private vulnerability reporting](https://github.com/Hussmart/openmed-ambient-graph/security/advisories/new).
-
 ---
 
 ## Credits
@@ -837,19 +723,18 @@ papers, posters, and derived documentation.
 
 ---
 
-## Upstream star history
+## Star History
 
-If OpenMed is useful to you, a star on the upstream project helps others discover it.
+If OpenMed is useful to you, a star helps others discover it.
 
-[Upstream: 5,100+ GitHub stars · 30 Aug 2026 snapshot](https://github.com/maziyarpanahi/openmed/stargazers)
+[5,100+ GitHub stars · 30 Aug 2026 snapshot](https://github.com/maziyarpanahi/openmed/stargazers)
 
 ---
 
 <div align="center">
 
-OpenMed is built by the OpenMed team. The additions in this repository are by <a href="https://github.com/Hussmart">Hossein Hooshmand</a>.
+Built by the OpenMed team
 
-Upstream links:
 <a href="https://openmed.life">Website</a> ·
 <a href="https://openmed.life/docs">Docs</a> ·
 <a href="https://x.com/openmed_ai">X / Twitter</a> ·
