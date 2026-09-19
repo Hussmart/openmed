@@ -47,6 +47,33 @@ OpenMed's core local runtime performs extraction and de-identification after req
 
 </div>
 
+> [!IMPORTANT]
+> **This is an independent fork of [maziyarpanahi/openmed](https://github.com/maziyarpanahi/openmed), not the official OpenMed repository.** The SDK, models, documentation, and branding below are the upstream project's work, used under its [Apache-2.0 license](LICENSE) (see [NOTICE](NOTICE)). The additions made in this fork are listed in [What this fork adds](#what-this-fork-adds); they are experimental, have not been reviewed or endorsed by the upstream maintainers, and are not part of the upstream PyPI package. For official releases, support, and `pip install openmed`, use the upstream repository.
+
+---
+
+## What this fork adds
+
+Everything not listed here is unchanged upstream code. The additions are two self-contained modules, three optional extras, and Typer CLI commands:
+
+| Addition | What it does | Code |
+| --- | --- | --- |
+| **Ambient speech redaction** | Streams microphone or `.wav` audio through local [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper) transcription, then through the existing `deidentify()` engine, one segment at a time | [`openmed/ambient/`](openmed/ambient/) |
+| **Voiceprint anonymization** | Warps a recording's formant structure (McAdams-coefficient LPC pole warping) so the audio itself, not only its transcript, is altered; pure NumPy, no model download | [`openmed/ambient/voice_privacy.py`](openmed/ambient/voice_privacy.py) |
+| **Local entity graph** | Builds a weighted co-occurrence graph from OpenMed NER output, per sentence or per document, serialized as plain JSON | [`openmed/graph/builder.py`](openmed/graph/builder.py) |
+| **GraphRAG retrieval** | Turns a question into prompt-ready context from the relationships actually observed in your corpus | [`openmed/graph/retrieval.py`](openmed/graph/retrieval.py) |
+| **Extras & CLI** | `speech`, `mic`, and `voice-privacy` extras; `ambient` and `graph` commands in the Typer CLI | [`pyproject.toml`](pyproject.toml), [`openmed/cli/typer_app.py`](openmed/cli/typer_app.py) |
+
+**What has been verified.** 49 unit tests cover the new modules ([`tests/unit/ambient/`](tests/unit/ambient/), [`tests/unit/graph/`](tests/unit/graph/)). Real models were also exercised locally: transcription with `faster-whisper` `small.en`, graph build and query with `OpenMed-NER-DiseaseDetect-ElectraMed-33M`, and voice anonymization on a synthetic waveform.
+
+**Known limits.**
+
+- The de-identification stage of `ambient file` / `ambient mic` calls upstream `deidentify()` with its default PII model. Unit tests mock that stage; it has not been run end to end with a real PII model here.
+- There is no consent, capture-state, audio-retention, or speaker-role handling. Do not point the ambient pipeline at real patient audio without your own controls.
+- McAdams warping is a lightweight research baseline that reduces speaker identifiability. It has not been evaluated against speaker-verification systems and gives no anonymity guarantee.
+- The graph records co-occurrence, not typed clinical relations such as "treats" or "causes"; edges are candidates to verify, not facts.
+- As with the rest of the SDK, none of this by itself establishes HIPAA compliance.
+
 ---
 
 ## See it in action
@@ -646,19 +673,21 @@ See the full [REST service guide](docs/rest-service.md).
 De-identify a clinical encounter as it's spoken: OpenMed streams microphone or `.wav` audio through local speech-to-text transcription and the same `deidentify()` engine used everywhere else in the SDK, redacting PHI segment by segment instead of waiting for the whole recording to finish. Because a raw recording's *voice* is itself a HIPAA Safe Harbor identifier — not just its transcript — a McAdams-coefficient voiceprint anonymizer (LPC pole warping) is included too: a small, deterministic signal-processing method with no model checkpoint to download.
 
 ```bash
-pip install --upgrade "openmed[speech,mic,voice-privacy]"
+# Install from this fork: the `speech`, `mic`, and `voice-privacy` extras are not in the upstream PyPI package
+git clone https://github.com/Hussmart/openmed && cd openmed
+pip install -e ".[hf,cli,speech,mic,voice-privacy]"
 
-# De-identify a recorded encounter, chunk by chunk
-openmed ambient file visit.wav --model small.en
+# De-identify a recorded encounter, chunk by chunk (16 kHz, 16-bit PCM .wav)
+python -m openmed.cli.typer_app ambient file visit.wav --model small.en
 
 # Live microphone redaction
-openmed ambient mic --model small.en
+python -m openmed.cli.typer_app ambient mic --model small.en
 
 # Anonymize a recording's voiceprint without changing what was said
-openmed ambient anonymize-voice visit.wav visit_anonymized.wav --mcadams 0.8
+python -m openmed.cli.typer_app ambient anonymize-voice visit.wav visit_anonymized.wav --mcadams 0.8
 ```
 
-Example output:
+Example output (illustrative; values depend on your audio and PII model):
 
 ```text
 {"start": 0.0, "end": 2.4, "redacted_text": "Patient [NAME] reports a persistent cough.", "pii_entity_count": 1, "pii_categories": ["NAME"]}
@@ -683,29 +712,39 @@ for redacted in pipeline.stream(WavFileAudioSource("visit.wav")):
 Turn OpenMed's NER output into a queryable entity-relationship graph, so an LLM's answer can be grounded in relationships OpenMed actually observed in your documents instead of inventing one.
 
 ```bash
-openmed graph build note1.txt note2.txt --output graph.json \
-  --models disease_detection_superclinical --window sentence
+# Install from this fork as above (needs the `hf` and `cli` extras); this example uses a small 33M NER model
+python -m openmed.cli.typer_app graph build note1.txt note2.txt --output graph.json \
+  --models OpenMed/OpenMed-NER-DiseaseDetect-ElectraMed-33M --window document --threshold 0.3
 
-openmed graph query "Does the patient have any drug interactions?" --graph graph.json
+python -m openmed.cli.typer_app graph query "Does the patient with asthma have any other conditions?" \
+  --graph graph.json --models OpenMed/OpenMed-NER-DiseaseDetect-ElectraMed-33M
 ```
 
-Example output:
+Example output (from two short synthetic notes):
 
 ```text
-Graph written to graph.json (12 nodes, 9 edges)
-{"query": "...", "matched_entities": ["metformin"], "triples": [{"source": "metformin", "relation": "co_occurs_with", "target": "diabetes", "weight": 3}], "context_text": "..."}
+Graph written to graph.json (4 nodes, 2 edges)
+{
+  "query": "Does the patient with asthma have any other conditions?",
+  "matched_entities": ["asthma"],
+  "triples": [
+    {"source": "asthma", "relation": "co_occurs_with", "target": "diabetes", "weight": 1}
+  ],
+  "context_text": "Entities recognized in the query: asthma.\nRelationships observed in the local corpus (not verified medical facts -- co-occurrence only):\n- asthma co occurs with diabetes (seen 1x)"
+}
 ```
 
 ```python
 from openmed.graph import build_entity_graph, GraphRAGRetriever
 
-graph = build_entity_graph({"note-1": text}, model_names=["disease_detection_superclinical"])
-retriever = GraphRAGRetriever(graph)
-context = retriever.retrieve("Does the patient have any drug interactions?")
-print(context.context_text)
+models = ["OpenMed/OpenMed-NER-DiseaseDetect-ElectraMed-33M"]
+graph = build_entity_graph({"note-1": text}, model_names=models, cooccurrence_window="document")
+retriever = GraphRAGRetriever(graph, model_names=models)
+print(retriever.retrieve("Does the patient with asthma have any other conditions?").context_text)
 ```
 
 - **No new model, no graph database**: reuses the NER models already in the registry; the graph itself is a plain JSON file.
+- **Windows**: `sentence` links only entities that share a sentence (precise, sparse); `document` links every entity pair in a document. A single-type model like the one above only produces edges with `document`, or when combined with other models (e.g. a drug model) that add a second entity type.
 - **Composes with existing RAG tooling**: pairs naturally with [`openmed.interop`](openmed/interop/)'s LangChain/LlamaIndex adapters and the SDK's redaction-preserving retrieval stack.
 
 ---
