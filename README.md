@@ -1,6 +1,8 @@
 <div align="center">
 
-<img src="docs/brand/openmed-readme-banner.png" alt="OpenMed README banner with the cat mascot, lowercase wordmark, Open Cross, and the text Open-source healthcare AI, 340M+ downloads, and 10M+ installs" width="1280" />
+<h1>openmed-ambient-graph</h1>
+
+<p><b>Ambient speech redaction, voiceprint anonymization, and local GraphRAG, built on <a href="https://github.com/maziyarpanahi/openmed">OpenMed</a>.</b></p>
 
 <h2>Your Data. Your Model. Your Hardware.</h2>
 
@@ -47,8 +49,8 @@ OpenMed's core local runtime performs extraction and de-identification after req
 
 </div>
 
-> [!IMPORTANT]
-> **This is an independent fork of [maziyarpanahi/openmed](https://github.com/maziyarpanahi/openmed), not the official OpenMed repository.** The SDK, models, documentation, and branding below are the upstream project's work, used under its [Apache-2.0 license](LICENSE) (see [NOTICE](NOTICE)). The additions made in this fork are listed in [What this fork adds](#what-this-fork-adds); they are experimental, have not been reviewed or endorsed by the upstream maintainers, and are not part of the upstream PyPI package. For official releases, support, and `pip install openmed`, use the upstream repository.
+> [!NOTE]
+> **An independent extension of [OpenMed](https://github.com/maziyarpanahi/openmed), maintained by [Hossein Hooshmand](https://github.com/Hussmart).** It is built on the OpenMed SDK (Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE)) and is not affiliated with or endorsed by the OpenMed maintainers. The SDK, models, and documentation below are theirs; what this repository adds is listed in [What this fork adds](#what-this-fork-adds) and is not part of the upstream PyPI package. Questions or bugs in the additions belong in [this repository's issues](https://github.com/Hussmart/openmed-ambient-graph/issues); for the upstream SDK, releases, and `pip install openmed`, use [maziyarpanahi/openmed](https://github.com/maziyarpanahi/openmed).
 
 ---
 
@@ -674,7 +676,7 @@ De-identify a clinical encounter as it's spoken: OpenMed streams microphone or `
 
 ```bash
 # Install from this fork: the `speech`, `mic`, and `voice-privacy` extras are not in the upstream PyPI package
-git clone https://github.com/Hussmart/openmed && cd openmed
+git clone https://github.com/Hussmart/openmed-ambient-graph && cd openmed-ambient-graph
 pip install -e ".[hf,cli,speech,mic,voice-privacy]"
 
 # De-identify a recorded encounter, chunk by chunk (16 kHz, 16-bit PCM .wav)
@@ -802,6 +804,10 @@ issue. See **[SECURITY.md](SECURITY.md)** for the responsible-disclosure policy
 and the [private reporting form](https://github.com/maziyarpanahi/openmed/security/advisories/new).
 Never include real patient data in a report.
 
+That policy and form belong to the upstream project. For a vulnerability in the
+additions made in this repository (`openmed/ambient/`, `openmed/graph/`), use
+this repository's [private vulnerability reporting](https://github.com/Hussmart/openmed-ambient-graph/security/advisories/new).
+
 ---
 
 ## Credits
@@ -831,18 +837,19 @@ papers, posters, and derived documentation.
 
 ---
 
-## Star History
+## Upstream star history
 
-If OpenMed is useful to you, a star helps others discover it.
+If OpenMed is useful to you, a star on the upstream project helps others discover it.
 
-[5,100+ GitHub stars · 30 Aug 2026 snapshot](https://github.com/maziyarpanahi/openmed/stargazers)
+[Upstream: 5,100+ GitHub stars · 30 Aug 2026 snapshot](https://github.com/maziyarpanahi/openmed/stargazers)
 
 ---
 
 <div align="center">
 
-Built by the OpenMed team
+OpenMed is built by the OpenMed team. The additions in this repository are by <a href="https://github.com/Hussmart">Hossein Hooshmand</a>.
 
+Upstream links:
 <a href="https://openmed.life">Website</a> ·
 <a href="https://openmed.life/docs">Docs</a> ·
 <a href="https://x.com/openmed_ai">X / Twitter</a> ·
