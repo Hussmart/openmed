@@ -54,6 +54,15 @@ class TestWavFileAudioSource:
         total_frames = sum(len(chunk.pcm16) // 2 for chunk in chunks)
         assert total_frames == int(2.5 * 16_000)
 
+    def test_chunk_timestamps_are_chunk_start_times(self, tmp_path: Path) -> None:
+        wav_path = tmp_path / "sample.wav"
+        _write_silent_wav(wav_path, seconds=2.5, sample_rate=16_000, channels=1)
+
+        source = WavFileAudioSource(wav_path, chunk_seconds=1.0)
+        timestamps = [chunk.timestamp for chunk in source.chunks()]
+
+        assert timestamps == pytest.approx([0.0, 1.0, 2.0])
+
     def test_rejects_non_16bit_wav(self, tmp_path: Path) -> None:
         wav_path = tmp_path / "float.wav"
         with wave.open(str(wav_path), "wb") as handle:
