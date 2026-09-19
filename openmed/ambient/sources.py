@@ -39,6 +39,9 @@ class AudioChunk:
     format both ``faster-whisper`` and ``sounddevice`` consume without extra
     conversion. Carrying bytes (not a NumPy array) here keeps this module
     importable without any optional dependency installed.
+
+    ``timestamp`` is the chunk's *start* time in seconds since the stream began;
+    transcript segment times are offsets from it.
     """
 
     pcm16: bytes
@@ -100,12 +103,13 @@ class WavFileAudioSource:
                 if not frames:
                     break
                 read_count = len(frames) // frame_size
+                chunk_start = frames_read / self.sample_rate
                 frames_read += read_count
                 yield AudioChunk(
                     pcm16=frames,
                     sample_rate=self.sample_rate,
                     channels=self.channels,
-                    timestamp=frames_read / self.sample_rate,
+                    timestamp=chunk_start,
                     is_last=frames_read >= total_frames,
                 )
 
@@ -156,6 +160,7 @@ class MicrophoneAudioSource:
         ):
             while True:
                 pcm16 = audio_queue.get()
+                chunk_start = elapsed
                 elapsed += self._chunk_seconds
                 is_last = (
                     self._max_duration_seconds is not None
@@ -165,7 +170,7 @@ class MicrophoneAudioSource:
                     pcm16=pcm16,
                     sample_rate=self.sample_rate,
                     channels=self.channels,
-                    timestamp=elapsed,
+                    timestamp=chunk_start,
                     is_last=is_last,
                 )
                 if is_last:
